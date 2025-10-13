@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Pro Kamera</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2Zm4.49 14.44a1 1 0 0 1-1.37.33 9.65 9.65 0 0 0-9.21-.35 1 1 0 1 1-.9-1.79 11.65 11.65 0 0 1 11.13.43 1 1 0 0 1 .35 1.38Zm1.79-3.45a1 1 0 0 1-1.37.33 12.74 12.74 0 0 0-12.17-.46 1 1 0 1 1-.88-1.8 14.74 14.74 0 0 1 14.07.53 1 1 0 0 1 .35 1.4Zm.08-3.63a1 1 0 0 1-1.37.32 16.24 16.24 0 0 0-15.49-.6 1 1 0 0 1-.8-1.83 18.23 18.23 0 0 1 17.39.68 1 1 0 0 1 .27 1.43Z"/>
+      </svg>
+      <span>Pro Kamera</span>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="controls-inline">
+      <label class="select-wrap" title="Görüntü Oranı">
+        <span>Format</span>
+        <select id="aspectSelect">
+          <option value="4:3" selected>4:3</option>
+          <option value="16:9">16:9</option>
+          <option value="21:9">21:9</option>
+          <option value="1:1">1:1</option>
+          <option value="3:2">3:2</option>
+        </select>
+      </label>
+
+      <button id="settingsBtn" class="icon-btn" title="Ayarlar">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.08A1.65 1.65 0 0 0 8 19.45a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.08A1.65 1.65 0 0 0 3.55 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 6 3.29l.06.06A1.65 1.65 0 0 0 7.88 3a1.65 1.65 0 0 0 1-1.51V1a2 2 0 1 1 4 0v.08A1.65 1.65 0 0 0 16 3.55c.46 0 .9-.18 1.23-.51l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.45 8c0 .46.18.9.51 1.23l.06.06A2 2 0 1 1 21 12h-.08a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="preview-area">
+    <div id="previewFrame" class="preview-frame">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="photoCanvas" class="hidden"></canvas>
+      <div id="gridOverlay" class="grid-overlay hidden"></div>
+      <div id="letterbox" class="letterbox"></div>
+      <div id="focusPoint" class="focus-point hidden"></div>
+    </div>
+
+    <div id="lensStrip" class="lens-strip" role="tablist" aria-label="Lensler">
+      <!-- Dinamik lens butonları -->
+    </div>
+  </main>
+
+  <aside id="settingsPanel" class="settings-panel">
+    <div class="panel-header">
+      <h3>Ayarlar</h3>
+      <button id="closeSettings" class="icon-btn" title="Kapat">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="row">
+        <label class="select-wrap">
+          <span>Mod</span>
+          <select id="modeSelect">
+            <option value="photo" selected>Fotoğraf</option>
+            <option value="video">Video</option>
+          </select>
+        </label>
+        <label class="switch" title="Izgara">
+          <input type="checkbox" id="gridToggle" />
+          <span class="slider"></span>
+          <span class="switch-label">Izgara</span>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="select-wrap">
+          <span>Çözünürlük (Video)</span>
+          <select id="resolutionSelect">
+            <option value="3840x2160">4K (3840x2160)</option>
+            <option value="2560x1440">1440p (2560x1440)</option>
+            <option value="1920x1080" selected>1080p (1920x1080)</option>
+            <option value="1280x720">720p (1280x720)</option>
+            <option value="640x480">480p (640x480)</option>
+          </select>
+        </label>
+
+        <label class="select-wrap">
+          <span>FPS (Video)</span>
+          <select id="fpsSelect">
+            <option value="24">24</option>
+            <option value="30" selected>30</option>
+            <option value="60">60</option>
+            <option value="120">120</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="range-wrap">
+          <span>Zoom</span>
+          <input type="range" id="zoomSlider" min="1" max="1" step="0.01" value="1" disabled />
+          <span id="zoomValue" class="mono">1.0x</span>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="switch" title="Flaş (Torch)">
+          <input type="checkbox" id="torchToggle" />
+          <span class="slider"></span>
+          <span class="switch-label">Flaş (Torch)</span>
+        </label>
+      </div>
+
+      <div class="note">
+        Not: Çözünürlük ve FPS cihaz desteğine göre değişebilir. Uygulama, seçilen değeri uygulamaya çalışır; başarısız olursa en yakın desteklenen değere düşer.
+      </div>
+    </div>
+  </aside>
+
+  <footer class="bottombar">
+    <button id="switchFacing" class="icon-btn" title="Ön/Arka">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M1 4h4l2 3h10l2-3h4v16H1z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+    </button>
+
+    <button id="shutterBtn" class="shutter-btn" title="Çek">
+      <span class="inner"></span>
+    </button>
+
+    <button id="modeToggle" class="mode-toggle" title="Foto/Video">Fotoğraf</button>
+  </footer>
+
+  <div id="recordBadge" class="record-badge hidden">
+    <span class="dot"></span>
+    <span id="timer">00:00</span>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
