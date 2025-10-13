@@ -1,4 +1,4 @@
-// Pro Kamera - HTML5 getUserMedia / MediaRecorder / ImageCapture
+// ProCam Portable - Geliştirilmiş sürüm
 (() => {
   const els = {
     video: document.getElementById('video'),
@@ -24,6 +24,16 @@
     timer: document.getElementById('timer'),
     toast: document.getElementById('toast'),
     focusPoint: document.getElementById('focusPoint'),
+    glassBackdrop: document.getElementById('glassBackdrop'),
+    // Manuel kontroller
+    expSlider: document.getElementById('expSlider'),
+    expValue: document.getElementById('expValue'),
+    focusSlider: document.getElementById('focusSlider'),
+    focusValue: document.getElementById('focusValue'),
+    wbModeSelect: document.getElementById('wbModeSelect'),
+    wbTempWrap: document.getElementById('wbTempWrap'),
+    wbTempSlider: document.getElementById('wbTempSlider'),
+    wbTempValue: document.getElementById('wbTempValue'),
   };
 
   const state = {
@@ -47,9 +57,11 @@
     zoomMax: 1,
     torchSupported: false,
     isRecording: false,
+    fsAsked: false,
+    pinch: { active: false, startDist: 0, startZoom: 1 },
   };
 
-  function log(...args) { console.log('[Camera]', ...args); }
+  function log(...args) { console.log('[ProCam]', ...args); }
 
   function showToast(msg, ms = 2200) {
     els.toast.textContent = msg;
@@ -65,7 +77,7 @@
   }
 
   function mapLensName(label, index) {
-    const l = label.toLowerCase();
+    const l = (label || '').toLowerCase();
     if (l.includes('ultra') || l.includes('0.5x') || l.includes('wide-angle') || l.includes('ultra wide')) return 'Ultra Geniş';
     if (l.includes('tele') || l.includes('zoom') || l.includes('3x') || l.includes('5x')) return 'Tele';
     if (l.includes('macro')) return 'Makro';
@@ -76,12 +88,9 @@
 
   async function ensurePermission() {
     try {
-      // İlk izin alma (label'ların dolması için)
       const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: state.facingMode }, audio: false });
       s.getTracks().forEach(t => t.stop());
-    } catch (e) {
-      log('Permission error', e);
-    }
+    } catch (e) { log('Permission error', e); }
   }
 
   async function enumerateLenses() {
@@ -89,17 +98,14 @@
     state.devices = devices;
     const videoInputs = devices.filter(d => d.kind === 'videoinput');
 
-    // Öncelik: environment/back kameralar
     const envCams = videoInputs.filter(d => /back|rear|environment/i.test(d.label) || !/front|user/i.test(d.label));
     const userCams = videoInputs.filter(d => /front|user/i.test(d.label));
 
-    const list = (state.facingMode === 'environment' ? envCams : userCams);
-    // Belirsiz durumda tümünü kullan
+    const list = state.facingMode === 'environment' ? envCams : userCams;
     const candidates = list.length ? list : videoInputs;
 
-    // Sırala: Ultra geniş -> Geniş -> Tele -> Makro -> Diğer
     const score = (label) => {
-      const l = label.toLowerCase();
+      const l = (label || '').toLowerCase();
       if (l.includes('ultra') || l.includes('0.5x') || l.includes('ultra wide') || l.includes('wide-angle')) return 1;
       if (l.includes('wide') || l.includes('back') || l.includes('rear')) return 2;
       if (l.includes('tele') || l.includes('zoom') || l.includes('3x') || l.includes('5x')) return 3;
@@ -119,7 +125,7 @@
 
   function buildLensStrip() {
     els.lensStrip.innerHTML = '';
-    state.lenses.forEach((lens, idx) => {
+    state.lenses.forEach((lens) => {
       const btn = document.createElement('button');
       btn.className = 'lens-btn';
       btn.setAttribute('role', 'tab');
@@ -133,15 +139,24 @@
 
   function highlightActiveLens() {
     const buttons = els.lensStrip.querySelectorAll('.lens-btn');
-    buttons.forEach(b => {
-      if (b.dataset.deviceId === state.currentLensId) b.classList.add('active');
-      else b.classList.remove('active');
-    });
+    buttons.forEach(b => b.classList.toggle('active', b.dataset.deviceId === state.currentLensId));
   }
 
   function parseResolution(value) {
     const [w, h] = value.split('x').map(Number);
     return { width: w, height: h };
+  }
+
+  function computeAudioConstraints() {
+    // Maksimum ses kalitesi için ideal değerler
+    return {
+      channelCount: { ideal: 2 },
+      sampleRate: { ideal: 48000 },
+      sampleSize: { ideal: 16 },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false
+    };
   }
 
   function computeVideoConstraints() {
@@ -151,11 +166,9 @@
       width: { ideal: state.desiredWidth },
       height: { ideal: state.desiredHeight },
       frameRate: { ideal: state.desiredFps },
-      // advanced: [{ aspectRatio: w/h }] // genellikle ihmal ediliyor
     };
-    // Remove undefined to avoid errors
     Object.keys(base).forEach(k => base[k] === undefined && delete base[k]);
-    return { video: base, audio: state.mode === 'video' ? true : false };
+    return { video: base, audio: state.mode === 'video' ? computeAudioConstraints() : false };
   }
 
   function stopStream() {
@@ -176,26 +189,24 @@
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       state.stream = stream;
       els.video.srcObject = stream;
+
       const videoTrack = stream.getVideoTracks()[0];
       const settings = videoTrack.getSettings ? videoTrack.getSettings() : {};
       log('Track settings', settings);
 
       // Mirror only for front camera
-      if (settings.facingMode === 'user' || state.facingMode === 'user') {
-        els.previewFrame.classList.remove('mirror-off');
-      } else {
-        els.previewFrame.classList.add('mirror-off');
-      }
+      if (settings.facingMode === 'user' || state.facingMode === 'user') els.previewFrame.classList.remove('mirror-off');
+      else els.previewFrame.classList.add('mirror-off');
 
-      // ImageCapture (foto kalitesi ve hızlı çekim için)
-      try {
-        state.imageCapture = ('ImageCapture' in window) ? new ImageCapture(videoTrack) : null;
-      } catch (e) {
-        state.imageCapture = null;
-      }
+      // ImageCapture for full-res photos
+      try { state.imageCapture = ('ImageCapture' in window) ? new ImageCapture(videoTrack) : null; }
+      catch { state.imageCapture = null; }
 
       setupZoomTorch(videoTrack);
+      setupManualControls(videoTrack);
       highlightActiveLens();
+
+      // Photo modunda, önizleme 1080p olsa bile çekim sırasında maksimuma çıkacağız (takePhoto options ile)
     } catch (err) {
       log('getUserMedia failed', err);
       showToast('Kamera açılamadı. İzinleri ve https bağlantısını kontrol edin.');
@@ -222,8 +233,61 @@
       els.zoomValue.textContent = `—`;
     }
     // Torch
-    state.torchSupported = !!caps.torch;
+    state.torchSupported = !!(caps.torch);
     els.torchToggle.disabled = !state.torchSupported;
+  }
+
+  function setupManualControls(videoTrack) {
+    const caps = videoTrack.getCapabilities?.() || {};
+    const sets = videoTrack.getSettings?.() || {};
+
+    // Exposure Compensation
+    if (caps.exposureCompensation) {
+      const { min, max, step } = caps.exposureCompensation;
+      els.expSlider.min = min; els.expSlider.max = max; els.expSlider.step = step || 0.1;
+      const cur = sets.exposureCompensation ?? 0;
+      els.expSlider.value = cur; els.expValue.textContent = String(cur);
+      els.expSlider.disabled = false;
+    } else {
+      els.expSlider.disabled = true; els.expValue.textContent = '—';
+    }
+
+    // Focus Distance
+    if (caps.focusDistance) {
+      const { min, max, step } = caps.focusDistance;
+      els.focusSlider.min = min; els.focusSlider.max = max; els.focusSlider.step = step || 0.01;
+      const cur = sets.focusDistance ?? min;
+      els.focusSlider.value = cur; els.focusValue.textContent = Number(cur).toFixed(2);
+      els.focusSlider.disabled = false;
+    } else {
+      els.focusSlider.disabled = true; els.focusValue.textContent = '—';
+    }
+
+    // White Balance Mode + Temperature
+    if (caps.whiteBalanceMode && Array.isArray(caps.whiteBalanceMode)) {
+      els.wbModeSelect.innerHTML = '';
+      caps.whiteBalanceMode.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        els.wbModeSelect.appendChild(opt);
+      });
+      els.wbModeSelect.value = sets.whiteBalanceMode || caps.whiteBalanceMode[0];
+      els.wbModeSelect.disabled = false;
+
+      if (caps.colorTemperature && els.wbModeSelect.value === 'manual') {
+        const { min, max, step } = caps.colorTemperature;
+        els.wbTempSlider.min = min; els.wbTempSlider.max = max; els.wbTempSlider.step = step || 1;
+        const cur = sets.colorTemperature ?? min;
+        els.wbTempSlider.value = cur; els.wbTempValue.textContent = `${cur}K`;
+        els.wbTempSlider.disabled = false; els.wbTempWrap.style.display = '';
+      } else {
+        els.wbTempWrap.style.display = 'none';
+      }
+    } else {
+      els.wbModeSelect.innerHTML = '';
+      els.wbModeSelect.disabled = true;
+      els.wbTempWrap.style.display = 'none';
+    }
   }
 
   async function applyZoom(value) {
@@ -245,11 +309,55 @@
   async function applyTorch(on) {
     const track = state.stream?.getVideoTracks?.()[0];
     if (!track) return;
+    try { await track.applyConstraints({ advanced: [{ torch: !!on }] }); }
+    catch (e) { log('Torch apply failed', e); }
+  }
+
+  async function applyExposure(value) {
+    const track = state.stream?.getVideoTracks?.()[0];
+    if (!track) return;
     try {
-      await track.applyConstraints({ advanced: [{ torch: !!on }] });
-    } catch (e) {
-      log('Torch apply failed', e);
-    }
+      await track.applyConstraints({ advanced: [{ exposureCompensation: Number(value) }] });
+      els.expValue.textContent = String(value);
+    } catch (e) { log('Exposure apply failed', e); }
+  }
+
+  async function applyFocusDistance(value) {
+    const track = state.stream?.getVideoTracks?.()[0];
+    if (!track) return;
+    try {
+      // bazı cihazlar focusMode: 'manual' ister
+      try { await track.applyConstraints({ focusMode: 'manual' }); } catch {}
+      await track.applyConstraints({ advanced: [{ focusDistance: Number(value) }] });
+      els.focusValue.textContent = Number(value).toFixed(2);
+    } catch (e) { log('Focus apply failed', e); }
+  }
+
+  async function setWhiteBalanceMode(mode) {
+    const track = state.stream?.getVideoTracks?.()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ whiteBalanceMode: mode });
+      if (mode === 'manual') {
+        const caps = track.getCapabilities?.() || {};
+        if (caps.colorTemperature) {
+          const { min, max, step } = caps.colorTemperature;
+          els.wbTempSlider.min = min; els.wbTempSlider.max = max; els.wbTempSlider.step = step || 1;
+          els.wbTempSlider.disabled = false; els.wbTempWrap.style.display = '';
+        }
+      } else {
+        els.wbTempWrap.style.display = 'none';
+      }
+    } catch (e) { log('WB mode apply failed', e); }
+  }
+
+  async function applyColorTemperature(value) {
+    const track = state.stream?.getVideoTracks?.()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ colorTemperature: Number(value) }] });
+      els.wbTempValue.textContent = `${value}K`;
+    } catch (e) { log('WB temp apply failed', e); }
   }
 
   async function switchLens(deviceId) {
@@ -259,7 +367,6 @@
 
   async function switchFacing() {
     state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
-    // Facing değişince uygun lens listesini tekrar çıkar
     state.currentLensId = null;
     await enumerateLenses();
     await startStream();
@@ -270,39 +377,67 @@
     els.previewFrame.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(1.8)' }, { filter: 'brightness(1)' }], { duration: 180 });
 
     const [aw, ah] = state.aspect.split(':').map(Number);
+    const targetRatio = aw / ah;
+
     let blob;
-    if (state.imageCapture && state.imageCapture.takePhoto) {
+
+    if (state.imageCapture) {
       try {
-        blob = await state.imageCapture.takePhoto();
+        if (state.imageCapture.getPhotoCapabilities) {
+          const pc = await state.imageCapture.getPhotoCapabilities();
+          const w = pc.imageWidth?.max || undefined;
+          const h = pc.imageHeight?.max || undefined;
+          const opts = {};
+          if (w) opts.imageWidth = w;
+          if (h) opts.imageHeight = h;
+          blob = await state.imageCapture.takePhoto(opts);
+        } else {
+          blob = await state.imageCapture.takePhoto();
+        }
       } catch (e) {
         log('ImageCapture.takePhoto failed, fallback to canvas', e);
+      }
+    }
+
+    if (blob) {
+      // Max çözünürlükte çekildi; seçili format oranına göre merkezden kırp
+      try {
+        const bmp = await createImageBitmap(blob);
+        const srcRatio = bmp.width / bmp.height;
+        let sx=0, sy=0, sw=bmp.width, sh=bmp.height;
+        if (srcRatio > targetRatio) {
+          // yatay kırp
+          sw = Math.round(bmp.height * targetRatio);
+          sx = Math.round((bmp.width - sw) / 2);
+        } else {
+          // dikey kırp
+          sh = Math.round(bmp.width / targetRatio);
+          sy = Math.round((bmp.height - sh) / 2);
+        }
+        const canvas = els.photoCanvas;
+        canvas.width = sw; canvas.height = sh;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+        blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.98));
+      } catch (e) {
+        log('Crop after takePhoto failed, saving original', e);
       }
     }
 
     if (!blob) {
       // Canvas fallback: current video frame -> canvas, aspect crop
       const video = els.video;
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      if (!vw || !vh) {
-        showToast('Kare yakalanamadı.');
-        return;
-      }
-      const targetRatio = aw/ah;
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (!vw || !vh) { showToast('Kare yakalanamadı.'); return; }
       const srcRatio = vw/vh;
       let sx=0, sy=0, sw=vw, sh=vh;
       if (srcRatio > targetRatio) {
-        // fazla geniş, yatay kırp
-        sw = Math.round(vh * targetRatio);
-        sx = Math.round((vw - sw)/2);
+        sw = Math.round(vh * targetRatio); sx = Math.round((vw - sw)/2);
       } else {
-        // fazla yüksek, dikey kırp
-        sh = Math.round(vw / targetRatio);
-        sy = Math.round((vh - sh)/2);
+        sh = Math.round(vw / targetRatio); sy = Math.round((vh - sh)/2);
       }
       const canvas = els.photoCanvas;
-      canvas.width = sw;
-      canvas.height = sh;
+      canvas.width = sw; canvas.height = sh;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
       blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
@@ -321,65 +456,77 @@
     return `photo_${ts}_${lensName}_${state.aspect}.jpg`;
   }
 
-  function buildVideoFilename(mime = 'webm') {
+  function buildVideoFilename(ext = 'webm') {
     const ts = new Date().toISOString().replace(/[:.]/g,'-');
     const lensName = state.lenses.find(l => l.deviceId === state.currentLensId)?.display || (state.facingMode === 'user' ? 'On' : 'Arka');
-    return `video_${ts}_${lensName}_${state.desiredWidth}x${state.desiredHeight}_${state.desiredFps}fps.${mime}`;
+    return `video_${ts}_${lensName}_${state.desiredWidth}x${state.desiredHeight}_${state.desiredFps}fps.${ext}`;
   }
 
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      a.remove();
-      URL.revokeObjectURL(url);
-    }, 100);
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 100);
   }
 
   function chooseBestMime() {
     const candidates = [
-      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4;codecs=avc1.640028,mp4a.40.2',   // H.264 High@L4.0 + AAC LC
       'video/mp4;codecs="h264,aac"',
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
       'video/webm'
     ];
     for (const t of candidates) {
-      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+      if (window.MediaRecorder?.isTypeSupported?.(t)) return t;
     }
     return '';
+  }
+
+  function estimateVideoBitrate(width, height, fps) {
+    // Heuristik: 0.08 bit/pixel @fps, 4K60 ~ 40-60 Mbps arası hedefle
+    const bpp = 0.08;
+    const v = Math.floor(width * height * fps * bpp);
+    // sınırlar: 6 Mbps - 60 Mbps
+    return Math.max(6_000_000, Math.min(v, 60_000_000));
   }
 
   function startRecording() {
     if (!state.stream) return;
     const mimeType = chooseBestMime();
+    const vBps = estimateVideoBitrate(state.desiredWidth, state.desiredHeight, state.desiredFps);
+    const aBps = 256_000; // 256 kbps stereo OPUS/AAC hedefi
+
+    let options = {};
+    if (mimeType) options.mimeType = mimeType;
+    // bazı tarayıcılar bitsPerSecond'ı, bazıları ayrı alanları destekler
+    options.videoBitsPerSecond = vBps;
+    options.audioBitsPerSecond = aBps;
     try {
       state.chunks = [];
-      state.mediaRecorder = new MediaRecorder(state.stream, mimeType ? { mimeType } : undefined);
+      state.mediaRecorder = new MediaRecorder(state.stream, options);
     } catch (e) {
-      showToast('Video kaydı desteklenmiyor');
-      return;
+      // fallback: options olmadan dene
+      try { state.mediaRecorder = new MediaRecorder(state.stream); }
+      catch (e2) { showToast('Video kaydı desteklenmiyor'); return; }
     }
+
     state.mediaRecorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) state.chunks.push(ev.data); };
     state.mediaRecorder.onstop = () => {
-      const blob = new Blob(state.chunks, { type: state.mediaRecorder.mimeType || 'video/webm' });
-      const ext = (state.mediaRecorder.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const mime = state.mediaRecorder.mimeType || mimeType || 'video/webm';
+      const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+      const blob = new Blob(state.chunks, { type: mime });
       downloadBlob(blob, buildVideoFilename(ext));
       showToast('Video kaydedildi');
     };
-    state.mediaRecorder.start(); // no timeslice, max quality
+    state.mediaRecorder.start(); // en yüksek kalite
     state.isRecording = true;
     updateRecordingUI(true);
     startTimer();
   }
 
   function stopRecording() {
-    if (state.mediaRecorder && state.isRecording) {
-      state.mediaRecorder.stop();
-    }
+    if (state.mediaRecorder && state.isRecording) state.mediaRecorder.stop();
     state.isRecording = false;
     updateRecordingUI(false);
     stopTimer();
@@ -409,9 +556,7 @@
     }, 250);
   }
 
-  function stopTimer() {
-    clearInterval(state.timerInterval);
-  }
+  function stopTimer() { clearInterval(state.timerInterval); }
 
   async function applyVideoSettingsAndRestart() {
     const { width, height } = parseResolution(els.resolutionSelect.value);
@@ -422,7 +567,7 @@
     showToast(`Uygulandı: ${width}x${height} @ ${state.desiredFps}fps`);
   }
 
-  // Focus point visualization (touch to focus UI only; real focus via constraints not broadly supported)
+  // Focus point visualization
   function showFocusPoint(x, y) {
     const rect = els.previewFrame.getBoundingClientRect();
     const fx = x - rect.left;
@@ -438,11 +583,30 @@
     setTimeout(() => els.focusPoint.classList.add('hidden'), 800);
   }
 
+  // Pinch-to-zoom
+  function getTouchDist(e) {
+    if (e.touches.length < 2) return 0;
+    const [t1, t2] = [e.touches[0], e.touches[1]];
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  }
+
   function bindUI() {
     els.aspectSelect.addEventListener('change', (e) => setAspect(e.target.value));
 
-    els.settingsBtn.addEventListener('click', () => els.settingsPanel.classList.add('open'));
-    els.closeSettings.addEventListener('click', () => els.settingsPanel.classList.remove('open'));
+    const openSettings = () => {
+      els.settingsPanel.classList.add('open');
+      els.glassBackdrop.classList.add('open');
+      tryFullscreen();
+    };
+    const closeSettings = () => {
+      els.settingsPanel.classList.remove('open');
+      els.glassBackdrop.classList.remove('open');
+    };
+    els.settingsBtn.addEventListener('click', openSettings);
+    els.closeSettings.addEventListener('click', closeSettings);
+    els.glassBackdrop.addEventListener('click', closeSettings);
 
     els.gridToggle.addEventListener('change', (e) => {
       els.gridOverlay.classList.toggle('hidden', !e.target.checked);
@@ -458,10 +622,7 @@
       if (state.mode === 'photo') {
         state.mode = 'video';
       } else {
-        if (state.isRecording) {
-          stopRecording();
-          return;
-        }
+        if (state.isRecording) { stopRecording(); return; }
         state.mode = 'photo';
       }
       els.modeSelect.value = state.mode;
@@ -470,15 +631,12 @@
     });
 
     els.shutterBtn.addEventListener('click', async () => {
-      if (state.mode === 'photo') {
-        await takePhoto();
-      } else {
-        if (!state.isRecording) startRecording();
-        else stopRecording();
-      }
+      tryFullscreen();
+      if (state.mode === 'photo') await takePhoto();
+      else { if (!state.isRecording) startRecording(); else stopRecording(); }
     });
 
-    els.switchFacing.addEventListener('click', switchFacing);
+    els.switchFacing.addEventListener('click', () => { tryFullscreen(); switchFacing(); });
 
     els.resolutionSelect.addEventListener('change', applyVideoSettingsAndRestart);
     els.fpsSelect.addEventListener('change', applyVideoSettingsAndRestart);
@@ -486,12 +644,54 @@
     els.zoomSlider.addEventListener('input', (e) => applyZoom(e.target.value));
     els.torchToggle.addEventListener('change', (e) => applyTorch(e.target.checked));
 
-    // Tap to show focus point (visual)
-    els.previewFrame.addEventListener('click', (e) => {
-      showFocusPoint(e.clientX, e.clientY);
+    // Manuel kontroller
+    els.expSlider.addEventListener('input', (e) => applyExposure(e.target.value));
+    els.focusSlider.addEventListener('input', (e) => applyFocusDistance(e.target.value));
+    els.wbModeSelect.addEventListener('change', (e) => setWhiteBalanceMode(e.target.value));
+    els.wbTempSlider.addEventListener('input', (e) => applyColorTemperature(e.target.value));
+
+    // Tap focus UI
+    els.previewFrame.addEventListener('click', (e) => { showFocusPoint(e.clientX, e.clientY); tryFullscreen(); });
+
+    // Pinch
+    els.previewFrame.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2 && state.zoomSupported) {
+        state.pinch.active = true;
+        state.pinch.startDist = getTouchDist(e);
+        state.pinch.startZoom = Number(els.zoomSlider.value || 1);
+      }
+    }, { passive: false });
+
+    els.previewFrame.addEventListener('touchmove', (e) => {
+      if (state.pinch.active && e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDist(e);
+        const scale = dist / (state.pinch.startDist || dist);
+        let newZoom = state.pinch.startZoom * scale;
+        newZoom = Math.max(state.zoomMin, Math.min(newZoom, state.zoomMax));
+        els.zoomSlider.value = newZoom;
+        applyZoom(newZoom);
+      }
+    }, { passive: false });
+
+    ['touchend','touchcancel'].forEach(type => {
+      els.previewFrame.addEventListener(type, () => {
+        state.pinch.active = false;
+      });
     });
 
-    // Prevent pinch zoom page
+    // Desktop wheel zoom
+    els.previewFrame.addEventListener('wheel', (e) => {
+      if (!state.zoomSupported) return;
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY) * -0.05; // yukarı çevirmede yakınlaştır
+      let z = Number(els.zoomSlider.value || 1) + delta * (state.zoomMax - state.zoomMin);
+      z = Math.max(state.zoomMin, Math.min(z, state.zoomMax));
+      els.zoomSlider.value = z;
+      applyZoom(z);
+    }, { passive: false });
+
+    // Disable default pinch-zoom of page
     document.addEventListener('gesturestart', (e) => e.preventDefault());
 
     // Keyboard (desktop)
@@ -499,6 +699,28 @@
       if (e.code === 'Space') { e.preventDefault(); els.shutterBtn.click(); }
       if (e.key === 'f') switchFacing();
     });
+
+    // Orientation / layout
+    const updateOrientationClass = () => {
+      const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+      document.body.classList.toggle('landscape', isLandscape);
+      els.lensStrip.classList.toggle('vertical', isLandscape);
+    };
+    window.addEventListener('orientationchange', updateOrientationClass);
+    window.addEventListener('resize', updateOrientationClass);
+    updateOrientationClass();
+  }
+
+  function tryFullscreen() {
+    if (state.fsAsked) return;
+    state.fsAsked = true;
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (req) {
+      req.call(el).catch(() => { /* iOS Safari desteklemeyebilir */ });
+    }
+    // Android Chrome'da adres çubuğu gizlenmesine yardımcı
+    setTimeout(() => window.scrollTo(0, 1), 250);
   }
 
   async function init() {
@@ -512,11 +734,9 @@
 
     await ensurePermission();
     await enumerateLenses();
-    // Varsayılan olarak ilk lens
     state.currentLensId = state.lenses[0]?.deviceId || null;
     await startStream();
 
-    // Cihaz listesi değişirse (tak-çıkar)
     navigator.mediaDevices.addEventListener?.('devicechange', async () => {
       await enumerateLenses();
       if (!state.lenses.find(l => l.deviceId === state.currentLensId)) {
@@ -526,6 +746,5 @@
     });
   }
 
-  // iOS/Safari autoplay policy için interaction beklemek gerekebilir
   document.addEventListener('DOMContentLoaded', init);
 })();

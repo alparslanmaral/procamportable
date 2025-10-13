@@ -3,20 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <title>Pro Kamera</title>
+  <title>ProCam Portable</title>
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2Zm4.49 14.44a1 1 0 0 1-1.37.33 9.65 9.65 0 0 0-9.21-.35 1 1 0 1 1-.9-1.79 11.65 11.65 0 0 1 11.13.43 1 1 0 0 1 .35 1.38Zm1.79-3.45a1 1 0 0 1-1.37.33 12.74 12.74 0 0 0-12.17-.46 1 1 0 1 1-.88-1.8 14.74 14.74 0 0 1 14.07.53 1 1 0 0 1 .35 1.4Zm.08-3.63a1 1 0 0 1-1.37.32 16.24 16.24 0 0 0-15.49-.6 1 1 0 0 1-.8-1.83 18.23 18.23 0 0 1 17.39.68 1 1 0 0 1 .27 1.43Z"/>
-      </svg>
-      <span>Pro Kamera</span>
-    </div>
-
+    <div class="brand">ProCam Portable</div>
     <div class="spacer"></div>
-
     <div class="controls-inline">
       <label class="select-wrap" title="Görüntü Oranı">
         <span>Format</span>
@@ -28,7 +24,6 @@
           <option value="3:2">3:2</option>
         </select>
       </label>
-
       <button id="settingsBtn" class="icon-btn" title="Ayarlar">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"/>
@@ -46,10 +41,7 @@
       <div id="letterbox" class="letterbox"></div>
       <div id="focusPoint" class="focus-point hidden"></div>
     </div>
-
-    <div id="lensStrip" class="lens-strip" role="tablist" aria-label="Lensler">
-      <!-- Dinamik lens butonları -->
-    </div>
+    <div id="lensStrip" class="lens-strip" role="tablist" aria-label="Lensler"></div>
   </main>
 
   <aside id="settingsPanel" class="settings-panel">
@@ -73,7 +65,7 @@
         </label>
       </div>
 
-      <div class="row">
+      <div class="row responsive-wrap">
         <label class="select-wrap">
           <span>Çözünürlük (Video)</span>
           <select id="resolutionSelect">
@@ -112,11 +104,43 @@
         </label>
       </div>
 
+      <div class="divider">Manuel Ayarlar</div>
+
+      <div class="row">
+        <label class="range-wrap">
+          <span>Poz Telafisi</span>
+          <input type="range" id="expSlider" min="0" max="0" step="0.1" value="0" disabled />
+          <span id="expValue" class="mono">—</span>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="range-wrap">
+          <span>Netlik (Focus)</span>
+          <input type="range" id="focusSlider" min="0" max="0" step="0.01" value="0" disabled />
+          <span id="focusValue" class="mono">—</span>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="select-wrap">
+          <span>WB Modu</span>
+          <select id="wbModeSelect" disabled></select>
+        </label>
+        <label class="range-wrap" id="wbTempWrap" style="display:none">
+          <span>WB Sıcaklık (K)</span>
+          <input type="range" id="wbTempSlider" min="0" max="0" step="1" value="0" disabled />
+          <span id="wbTempValue" class="mono">—</span>
+        </label>
+      </div>
+
       <div class="note">
-        Not: Çözünürlük ve FPS cihaz desteğine göre değişebilir. Uygulama, seçilen değeri uygulamaya çalışır; başarısız olursa en yakın desteklenen değere düşer.
+        Not: Kalite/manuel ayarlar cihaz ve tarayıcı desteğine bağlıdır. Uygulama mevcut maksimumu dener, desteklenmeyenlerde en yakın değere düşer.
       </div>
     </div>
   </aside>
+
+  <div id="glassBackdrop" class="glass-backdrop"></div>
 
   <footer class="bottombar">
     <button id="switchFacing" class="icon-btn" title="Ön/Arka">
